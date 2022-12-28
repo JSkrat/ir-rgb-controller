@@ -25,7 +25,7 @@
 	// The OCR0A defines the top value for the counter, hence also its resolution.
 	ldi r16, (1 << WGM01) | (0 << WGM00)
 	out TCCR0A, r16
-	ldi r16, (0 << WGM02) | (1 << CS02) | (0 << CS01) | (0 << CS00)
+	ldi r16, (0 << WGM02) | (0 << CS02) | (1 << CS01) | (0 << CS00)
 	out TCCR0B, r16
 	ldi r16, 250
 	out OCR0A, r16

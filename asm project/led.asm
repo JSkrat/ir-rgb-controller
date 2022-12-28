@@ -37,7 +37,7 @@ led_pins: .db (1 << PIN_RED), (1 << PIN_GREEN), (1 << PIN_BLUE), 0
 	lds _led_phase, led_phase
 	dec _led_phase
 	brne led_phase_ok
-	ldi _led_phase, LED_PHASES - 0
+	ldi _led_phase, LED_PHASES - 1
    led_phase_ok:
 	sts led_phase, _led_phase
    calc_leds:

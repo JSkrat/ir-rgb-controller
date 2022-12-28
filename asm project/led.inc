@@ -7,6 +7,7 @@
 
 #define LED_PHASES 5
 #define LEDS 3
+#define LED_MAX 4
 
 #ifndef _LED_INC_
 #define _LED_INC_

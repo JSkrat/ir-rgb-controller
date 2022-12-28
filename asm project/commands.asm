@@ -52,8 +52,17 @@
 	breq _command_on
 	cpi _command_index, cbOff
 	breq _command_off
+	cpi _command_index, cbRGBBegin
+	brmi _command_set_rgb
+	cpi _command_index, cbWhite
+	breq _set_white
 	#undef _command_index
 	ret
+	_set_white:
+		ldi r16, LED_MAX
+		sts led, r16
+		sts led+1, r16
+		sts led+2, r16
 	_command_on:
 	// do nothing, that will update led colors
 	_command_exec_exit:
@@ -65,5 +74,25 @@ _command_off:
 	sts led+1, r1
 	sts led+2, r1
 	ret
+
+_command_set_rgb:
+	// determine which component to set
+	#define _color r17
+	cpi _color, cbBlueBegin
+	brcc _check_green
+		subi _color, cbBlueNorm
+		sts c_led_color+2, _color
+		rjmp _command_exec_exit
+	_check_green:
+	cpi _color, cbGreenBegin
+	brcc _set_red
+		subi _color, cbGreenNorm
+		sts c_led_color+1, _color
+		rjmp _command_exec_exit
+	_set_red:
+		subi _color, cbRedNorm
+		sts c_led_color, _color
+		rjmp _command_exec_exit
+	#undef _color
 	
 #endif

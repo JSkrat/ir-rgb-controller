@@ -14,11 +14,11 @@
 
 #define PIN_IR PORTB4
 #define PCINT_IR PCINT4
-#define DEBUG PORTB3
+;#define DEBUG PORTB3
 // ir remote address (first 2 bytes)
 #define ir_address 0x00F7
 // ir remote protocol, all units are timer ticks
-#define IR_MARGIN 20
+#define IR_MARGIN (int(562.5/TIMER_TICK)-1)
 #define START1 int(9000/TIMER_TICK)
 #define START2 int(4500/TIMER_TICK)
 #define BIT_START int(562.5/TIMER_TICK)
@@ -37,6 +37,23 @@
 #define iBit1 4
 #define rBufferBits 32
 
+.macro _debug_nops ; number of nops
+	.if @0 == 1
+		nop
+	.elif @0 > 1
+		nop
+		_debug_nops int(@0)-1
+	.endif
+.endmacro
+
+.macro debug_blink ; number of nops
+	#ifdef DEBUG
+		sbi PORTB, DEBUG
+		_debug_nops @0
+		cbi PORTB, DEBUG
+	#endif
+.endmacro
+
 .dseg
 r_buffer: .byte 4
 r_buffer_index: .byte 1
@@ -48,11 +65,10 @@ r_parser_state: .byte 1
 .cseg
 #define CODES_SIZE 24
 codes: .dw 	0x00FF, 0x807F, 0x40BF, 0xC03F, \
-			0x20DF, 0xA05F, 0x609F, 0xE01F, \
-			0x10EF, 0x906F, 0x50AF, 0xD02F, \
-			0x30CF, 0xB04F, 0x708F, 0xF00F, \
-			0x08F7, 0x8877, 0x48B7, 0xC837, \
-			0x28D7, 0xA857, 0x6897, 0xE817
+			0xE01F, 0xD02F, 0xF00F, 0xC837, 0xE817, \
+			0x20DF, 0x10EF, 0x30CF, 0x08F7, 0x28D7, \
+			0xA05F, 0x906F, 0xB04F, 0x8877, 0xA857, \
+			0x609F, 0x50AF, 0x708F, 0x48B7, 0x6897
 r_lengths: .dw START1, START2, BIT_START, BIT_0, BIT_1
 
 .macro remote_init
@@ -63,11 +79,11 @@ r_lengths: .dw START1, START2, BIT_START, BIT_0, BIT_1
 	// enable PCIE (we know that no one use GIMSK except us, so simplify initialization a bit)
 	ldi r16, (1 << PCIE)
 	out GIMSK, r16
+	#ifdef DEBUG
 	// debug to output
 	sbi DDRB, DEBUG
-	sbi PORTB, DEBUG
-	nop
-	cbi PORTB, DEBUG
+	debug_blink 1
+	#endif
 .endmacro
 
 .macro remote_inc_overflow
@@ -126,44 +142,29 @@ ret
 // pcint interrupt
 _r_buffer_filled:
 	// first check the remote address
-	sbi PORTB, DEBUG
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
-	cbi PORTB, DEBUG
-	ldi_z_for_lpm codes
+	debug_blink 8
 	lds r16, r_buffer+3
 	cpi r16, high(ir_address)
 	brne _r_buffer_filled_exit
-	sbi PORTB, DEBUG
-	cbi PORTB, DEBUG
+	debug_blink 0
 	lds r16, r_buffer+2
 	cpi r16, low(ir_address)
 	brne _r_buffer_filled_exit
-	sbi PORTB, DEBUG
-	cbi PORTB, DEBUG
+	debug_blink 0
 	ldi r17, CODES_SIZE
 	lds r18, r_buffer
 	lds r19, r_buffer+1
+	ldi_z_for_lpm codes
 	_r_find_command_loop:
-		sbi PORTB, DEBUG
-		cbi PORTB, DEBUG
-		lpm r16, z+
-		cp r16, r18
+		debug_blink 0
+		lpm r20, z+
+		lpm r21, z+
+		cp r20, r18
 		brne _r_find_command_loop_end
-		lpm r16, z+
-		cp r16, r19
+		cp r21, r19
 		brne _r_find_command_loop_end
 			// command have found!
-			sbi PORTB, DEBUG
-			nop
-			nop
-			cbi PORTB, DEBUG
+			debug_blink 2
 			rcall c_command
 			rjmp _r_buffer_filled_exit
 		_r_find_command_loop_end:
@@ -221,8 +222,7 @@ _r_buffer_filled_trampoline2:
 		sbrc _pulse_length_correct, 0
 		rjmp _r_check_for_bit_1
 			// it is bit 0
-			sbi PORTB, DEBUG
-			cbi PORTB, DEBUG
+			debug_blink 0
 			clc
 			rjmp _r_bit_received
 		_r_check_for_bit_1:
@@ -230,12 +230,7 @@ _r_buffer_filled_trampoline2:
 			rcall check_pulse_width_within
 			sbrc _pulse_length_correct, 0
 			rjmp _r_reset_fsm_and_exit
-			sbi PORTB, DEBUG
-			nop
-			nop
-			nop
-			nop
-			cbi PORTB, DEBUG
+			debug_blink 4
 			// it is bit 1
 			sec
 		_r_bit_received:
