@@ -14,12 +14,15 @@
 
 #define PIN_IR PORTB4
 #define PCINT_IR PCINT4
-;#define DEBUG PORTB3
+#define DEBUG PORTB3
 // ir remote address (first 2 bytes)
 #define ir_address 0x00F7
 // ir remote protocol, all units are timer ticks
 #define IR_MARGIN (int(562.5/TIMER_TICK)-1)
 #define START1 int(9000/TIMER_TICK)
+// my remote gives pulse 9.92ms long
+// and we still not sure how attiny rc generator change when it warmed up on top of leds
+#define START1_MARGIN int(1500/TIMER_TICK)
 #define START2 int(4500/TIMER_TICK)
 #define BIT_START int(562.5/TIMER_TICK)
 #define BIT_0 int(562.5/TIMER_TICK)
@@ -69,7 +72,11 @@ codes: .dw 	0x00FF, 0x807F, 0x40BF, 0xC03F, \
 			0x20DF, 0x10EF, 0x30CF, 0x08F7, 0x28D7, \
 			0xA05F, 0x906F, 0xB04F, 0x8877, 0xA857, \
 			0x609F, 0x50AF, 0x708F, 0x48B7, 0x6897
-r_lengths: .dw START1, START2, BIT_START, BIT_0, BIT_1
+r_lengths: .dw	START1,		START1_MARGIN, \
+				START2,		IR_MARGIN, \
+				BIT_START,	IR_MARGIN, \
+				BIT_0,		IR_MARGIN, \
+				BIT_1,		IR_MARGIN
 
 .macro remote_init
 	// make IR pin input
@@ -82,7 +89,7 @@ r_lengths: .dw START1, START2, BIT_START, BIT_0, BIT_1
 	#ifdef DEBUG
 	// debug to output
 	sbi DDRB, DEBUG
-	debug_blink 1
+	debug_blink 2
 	#endif
 .endmacro
 
@@ -108,16 +115,27 @@ check_pulse_width_within:
 	// r24:r25 is pulse length to compare
 	// output 0 to r17 if check pass, 1 otherwise
 	// destroys r26-r31
+#ifdef DEBUG
+	mov r3, r25
+	rcall _debug_show_byte
+	mov r3, r24
+	rcall _debug_show_byte
+#endif
 	#define _pl_index r16
+	clc
+	rol _pl_index
+	rol _pl_index
 	// load specified etalon pulse length to r26:r27
 	ldi_z_for_lpm r_lengths
-	// index times 2, item is word
-	add r30, r16
+	// index times 4, item is two words
+	add r30, _pl_index
 	adc r31, r1
-	add r30, r16
-	adc r31, r1
+	// load pulse length
 	lpm r26, Z+
-	lpm r27, Z
+	lpm r27, Z+
+	// load pulse length margin
+	lpm r28, Z+
+	lpm r29, Z
 	// subtract provided pulse length from that and make value absolute
 	sub r26, r24
 	sbc r27, r25
@@ -127,17 +145,43 @@ check_pulse_width_within:
 		com r26
 		adiw r26, 1
 	_r_difference_is_positive:
+#ifdef DEBUG
+	mov r3, r27
+	rcall _debug_show_byte
+	mov r3, r26
+	rcall _debug_show_byte
+#endif
 	// now check if difference is bigger than ir margin or not
 	ldi r17, 0
-	ldi r28, low(IR_MARGIN)
-	ldi r29, high(IR_MARGIN)
 	cp r28, r26
 	cpc r29, r27
 	brcc _cpww_ret
 		ldi r17, 1
 	_cpww_ret:
+	clc
+	ror _pl_index
+	ror _pl_index
 	#undef _pl_index
 ret
+
+#ifdef DEBUG
+_debug_show_byte:
+	// clock out r3 byte, MSB first
+	// destroys r3 and r17
+	ldi r17, 8
+	_dsb_loop:
+		rol r3 ; 1 clk
+		sbi PORTB, DEBUG ; 2 clk
+			// if 0 delay 1 clk, if 1 delay is 4 clk
+			brcs _delay_for_1
+			_delay_ret:
+		cbi PORTB, DEBUG ; 2 clk
+		dec r17 ; 1 clk
+	brne _dsb_loop ; 2 clk
+	ret
+_delay_for_1:
+	rjmp _delay_ret
+#endif
 
 // pcint interrupt
 _r_buffer_filled:
@@ -185,7 +229,7 @@ remote_pcint0_vector:
 	// first calculate this pulse width (since last pin change interrupt)
 	lds _pulse_width_lo, r_timer_ovf_counter
 	lds _pulse_width_hi, r_timer_ovf_counter+1
-	add _pulse_width_lo, r16
+	add _pulse_width_lo, _current_tcnt0
 	adc _pulse_width_hi, r1
 	// previous tcnt0
 	lds r17, r_timer_start
@@ -197,6 +241,7 @@ remote_pcint0_vector:
 	sts r_timer_start, _current_tcnt0
 	#undef _current_tcnt0
 	// check width overflow and reset fsm if it is
+	debug_blink 0
 	lds r16, r_width_overflow
 	or r16, r16
 	breq _no_width_overflow
@@ -209,6 +254,7 @@ remote_pcint0_vector:
 _r_buffer_filled_trampoline2:
 	rjmp _r_buffer_filled_trampoline
 	_no_width_overflow:
+	debug_blink 0
 	// FSM swich case
 	#define _parser_state r16
 	lds _parser_state, r_parser_state
@@ -241,13 +287,13 @@ _r_buffer_filled_trampoline2:
 			ld r18, x+
 			ld r19, x+
 			ld r20, x+
-			ld r21, x+
+			ld r21, x
 			// rotate through carry flag
 			rol r18
 			rol r19
 			rol r20
 			rol r21
-			st -x, r21
+			st x, r21
 			st -x, r20
 			st -x, r19
 			st -x, r18
@@ -259,15 +305,19 @@ _r_buffer_filled_trampoline2:
 		rjmp _r_end_switch_case
 	_r_check_start1:
 	// all other states are performing check against current state number
+	debug_blink 2
 	sbrc _pulse_length_correct, 0
 	rjmp _r_reset_fsm_and_exit
 	#undef _pulse_length_correct
+	debug_blink 0
 	cpi _parser_state, ersStart1
 	brne _r_check_start2
+		debug_blink 0
 		// start1
 		// first bit should be zero, but it is interrupt after change, so pin is 1 now
 		sbis PINB, PIN_IR
 		rjmp _r_reset_fsm_and_exit
+		debug_blink 0
 		ldi _parser_state, ersStart2
 		// reset buffer index
 		ldi r18, rBufferBits

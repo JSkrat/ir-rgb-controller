@@ -81,6 +81,9 @@
     <Compile Include="main.asm">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="registers.inc">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="remote.asm">
       <SubType>Code</SubType>
     </Compile>
