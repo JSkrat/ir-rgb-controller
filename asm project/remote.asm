@@ -33,8 +33,8 @@
 #define iStart1 0
 #define iStart2 1
 #define iBitStart 2
-#define iBit0 2
-#define iBit1 3
+#define iBit0 3
+#define iBit1 4
 #define rBufferBits 32
 
 .dseg
@@ -53,7 +53,7 @@ codes: .dw 	0x00FF, 0x807F, 0x40BF, 0xC03F, \
 			0x30CF, 0xB04F, 0x708F, 0xF00F, \
 			0x08F7, 0x8877, 0x48B7, 0xC837, \
 			0x28D7, 0xA857, 0x6897, 0xE817
-r_lengths: .dw START1, START2, BIT_START, BIT_1
+r_lengths: .dw START1, START2, BIT_START, BIT_0, BIT_1
 
 .macro remote_init
 	// make IR pin input
@@ -132,18 +132,27 @@ _r_buffer_filled:
 	nop
 	nop
 	nop
+	nop
+	nop
+	nop
 	cbi PORTB, DEBUG
 	ldi_z_for_lpm codes
 	lds r16, r_buffer+3
 	cpi r16, high(ir_address)
 	brne _r_buffer_filled_exit
+	sbi PORTB, DEBUG
+	cbi PORTB, DEBUG
 	lds r16, r_buffer+2
 	cpi r16, low(ir_address)
 	brne _r_buffer_filled_exit
+	sbi PORTB, DEBUG
+	cbi PORTB, DEBUG
 	ldi r17, CODES_SIZE
 	lds r18, r_buffer
 	lds r19, r_buffer+1
 	_r_find_command_loop:
+		sbi PORTB, DEBUG
+		cbi PORTB, DEBUG
 		lpm r16, z+
 		cp r16, r18
 		brne _r_find_command_loop_end
@@ -151,6 +160,10 @@ _r_buffer_filled:
 		cp r16, r19
 		brne _r_find_command_loop_end
 			// command have found!
+			sbi PORTB, DEBUG
+			nop
+			nop
+			cbi PORTB, DEBUG
 			rcall c_command
 			rjmp _r_buffer_filled_exit
 		_r_find_command_loop_end:
@@ -188,15 +201,7 @@ remote_pcint0_vector:
 	breq _no_width_overflow
 		// reset parser and width overflow and exit
 		// we know that ersStart1 is 0 so we use r1
-		;sbi PORTB, DEBUG
-		;nop
-		;nop
-		;nop
-		;nop
-		;cbi PORTB, DEBUG
 		_r_reset_fsm_and_exit:
-		;sbi PORTB, DEBUG
-		;cbi PORTB, DEBUG
 		sts r_parser_state, r1
 		sts r_width_overflow, r1
 		reti
@@ -216,6 +221,8 @@ _r_buffer_filled_trampoline2:
 		sbrc _pulse_length_correct, 0
 		rjmp _r_check_for_bit_1
 			// it is bit 0
+			sbi PORTB, DEBUG
+			cbi PORTB, DEBUG
 			clc
 			rjmp _r_bit_received
 		_r_check_for_bit_1:
@@ -223,6 +230,12 @@ _r_buffer_filled_trampoline2:
 			rcall check_pulse_width_within
 			sbrc _pulse_length_correct, 0
 			rjmp _r_reset_fsm_and_exit
+			sbi PORTB, DEBUG
+			nop
+			nop
+			nop
+			nop
+			cbi PORTB, DEBUG
 			// it is bit 1
 			sec
 		_r_bit_received:
@@ -250,32 +263,16 @@ _r_buffer_filled_trampoline2:
 			ldi _parser_state, ersBeginBit
 		rjmp _r_end_switch_case
 	_r_check_start1:
-	sbi PORTB, DEBUG
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
-	cbi PORTB, DEBUG
 	// all other states are performing check against current state number
 	sbrc _pulse_length_correct, 0
 	rjmp _r_reset_fsm_and_exit
-	sbi PORTB, DEBUG
-	cbi PORTB, DEBUG
 	#undef _pulse_length_correct
 	cpi _parser_state, ersStart1
 	brne _r_check_start2
 		// start1
-		sbi PORTB, DEBUG
-		cbi PORTB, DEBUG
-		// first bit should be zero
-		sbic PINB, PIN_IR
+		// first bit should be zero, but it is interrupt after change, so pin is 1 now
+		sbis PINB, PIN_IR
 		rjmp _r_reset_fsm_and_exit
-		sbi PORTB, DEBUG
-		cbi PORTB, DEBUG
 		ldi _parser_state, ersStart2
 		// reset buffer index
 		ldi r18, rBufferBits
@@ -286,21 +283,12 @@ _r_buffer_filled_trampoline2:
 	cpi _parser_state, ersStart2
 	brne _r_check_bit_start
 		// start2
-		;sbi PORTB, DEBUG
-		;nop
-		;nop
-		;cbi PORTB, DEBUG
 		ldi _parser_state, ersBeginBit
 		rjmp _r_end_switch_case
 	_r_check_bit_start:
 	cpi _parser_state, ersBeginBit
 	brne _r_reset_state
 		// begin bit
-		;sbi PORTB, DEBUG
-		;nop
-		;nop
-		;nop
-		;cbi PORTB, DEBUG
 		ldi _parser_state, ersEndBit
 		rjmp _r_end_switch_case
 	_r_reset_state:
