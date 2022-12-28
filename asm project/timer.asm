@@ -17,7 +17,9 @@
 	// so the minimal timer tick length is 9000us/256 = 35.15625us
 	// but we can accept a single overflow
 	// we'll accept all active start pulses longer than 8ms
-	// then we could use f_clk_io/256 with longest trackable pulse length 8.192ms
+	// then we could use f_clk_io/256 with longest trackable pulse length 8.192ms without overflow
+	// but if we count overflows, we may track pulses up to 65ms with any tick size bigger-equal to 1us 
+	// (9000/0.125=72000, doesn't fit into uint16)
 	// CTC mode, count from 0 to OCR0A register
 	//  In CTC mode the counter is cleared to zero when the counter value (TCNT0) matches the OCR0A.
 	// The OCR0A defines the top value for the counter, hence also its resolution.

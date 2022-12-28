@@ -8,15 +8,17 @@
 #ifndef _REMOTE_
 #define _REMOTE_
 
+.include "utils.inc"
 .include "timer.inc"
 .include "commands.asm"
 
 #define PIN_IR PORTB4
 #define PCINT_IR PCINT4
+#define DEBUG PORTB3
 // ir remote address (first 2 bytes)
 #define ir_address 0x00F7
 // ir remote protocol, all units are timer ticks
-#define IR_MARGIN 5
+#define IR_MARGIN 20
 #define START1 int(9000/TIMER_TICK)
 #define START2 int(4500/TIMER_TICK)
 #define BIT_START int(562.5/TIMER_TICK)
@@ -44,15 +46,13 @@ r_width_overflow: .byte 1
 r_parser_state: .byte 1
 
 .cseg
-#define CODES_SIZE 24 // without ir_address
-codes: .dw 	ir_address, \
-			0x00FF, 0x807F, 0x40BF, 0xC03F, \
+#define CODES_SIZE 24
+codes: .dw 	0x00FF, 0x807F, 0x40BF, 0xC03F, \
 			0x20DF, 0xA05F, 0x609F, 0xE01F, \
 			0x10EF, 0x906F, 0x50AF, 0xD02F, \
 			0x30CF, 0xB04F, 0x708F, 0xF00F, \
 			0x08F7, 0x8877, 0x48B7, 0xC837, \
 			0x28D7, 0xA857, 0x6897, 0xE817
-
 r_lengths: .dw START1, START2, BIT_START, BIT_1
 
 .macro remote_init
@@ -63,6 +63,11 @@ r_lengths: .dw START1, START2, BIT_START, BIT_1
 	// enable PCIE (we know that no one use GIMSK except us, so simplify initialization a bit)
 	ldi r16, (1 << PCIE)
 	out GIMSK, r16
+	// debug to output
+	sbi DDRB, DEBUG
+	sbi PORTB, DEBUG
+	nop
+	cbi PORTB, DEBUG
 .endmacro
 
 .macro remote_inc_overflow
@@ -86,15 +91,17 @@ check_pulse_width_within:
 	// r16 is index to value in r_lengths to compare against
 	// r24:r25 is pulse length to compare
 	// output 0 to r17 if check pass, 1 otherwise
-	// destroys r26-r29
+	// destroys r26-r31
 	#define _pl_index r16
 	// load specified etalon pulse length to r26:r27
-	ldi r28, low(r_lengths)
-	ldi r29, high(r_lengths)
-	add r28, r16
-	adc r29, r1
-	ld r26, Y+
-	ld r27, Y+
+	ldi_z_for_lpm r_lengths
+	// index times 2, item is word
+	add r30, r16
+	adc r31, r1
+	add r30, r16
+	adc r31, r1
+	lpm r26, Z+
+	lpm r27, Z
 	// subtract provided pulse length from that and make value absolute
 	sub r26, r24
 	sbc r27, r25
@@ -116,30 +123,31 @@ check_pulse_width_within:
 	#undef _pl_index
 ret
 
-_r_compare_command:
-	// r16 command index to check against (in codes)
-	// output in z flag, 1 if equals
-
-
 // pcint interrupt
 _r_buffer_filled:
 	// first check the remote address
-	ldi r26, low(codes)
-	ldi r27, high(codes)
-	ld r16, x+
+	sbi PORTB, DEBUG
+	nop
+	nop
+	nop
+	nop
+	nop
+	cbi PORTB, DEBUG
+	ldi_z_for_lpm codes
+	lds r16, r_buffer+3
 	cpi r16, high(ir_address)
 	brne _r_buffer_filled_exit
-	ld r16, x+
+	lds r16, r_buffer+2
 	cpi r16, low(ir_address)
 	brne _r_buffer_filled_exit
 	ldi r17, CODES_SIZE
 	lds r18, r_buffer
 	lds r19, r_buffer+1
 	_r_find_command_loop:
-		ld r16, x+
+		lpm r16, z+
 		cp r16, r18
 		brne _r_find_command_loop_end
-		ld r16, x+
+		lpm r16, z+
 		cp r16, r19
 		brne _r_find_command_loop_end
 			// command have found!
@@ -180,10 +188,20 @@ remote_pcint0_vector:
 	breq _no_width_overflow
 		// reset parser and width overflow and exit
 		// we know that ersStart1 is 0 so we use r1
+		;sbi PORTB, DEBUG
+		;nop
+		;nop
+		;nop
+		;nop
+		;cbi PORTB, DEBUG
 		_r_reset_fsm_and_exit:
+		;sbi PORTB, DEBUG
+		;cbi PORTB, DEBUG
 		sts r_parser_state, r1
 		sts r_width_overflow, r1
 		reti
+_r_buffer_filled_trampoline2:
+	rjmp _r_buffer_filled_trampoline
 	_no_width_overflow:
 	// FSM swich case
 	#define _parser_state r16
@@ -209,8 +227,9 @@ remote_pcint0_vector:
 			sec
 		_r_bit_received:
 			// ld/st does not affect flags
+			// for less than 256 bytes sram chips index registers are 1 byte, r27 is not part of X
 			ldi r26, low(r_buffer)
-			ldi r27, high(r_buffer)
+			//ldi r27, high(r_buffer)
 			ld r18, x+
 			ld r19, x+
 			ld r20, x+
@@ -227,20 +246,36 @@ remote_pcint0_vector:
 			lds r18, r_buffer_index
 			dec r18
 			sts r_buffer_index, r18
-			breq _r_buffer_filled_trampoline
+			breq _r_buffer_filled_trampoline2
 			ldi _parser_state, ersBeginBit
 		rjmp _r_end_switch_case
 	_r_check_start1:
+	sbi PORTB, DEBUG
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	cbi PORTB, DEBUG
 	// all other states are performing check against current state number
 	sbrc _pulse_length_correct, 0
 	rjmp _r_reset_fsm_and_exit
+	sbi PORTB, DEBUG
+	cbi PORTB, DEBUG
 	#undef _pulse_length_correct
 	cpi _parser_state, ersStart1
 	brne _r_check_start2
 		// start1
+		sbi PORTB, DEBUG
+		cbi PORTB, DEBUG
 		// first bit should be zero
 		sbic PINB, PIN_IR
 		rjmp _r_reset_fsm_and_exit
+		sbi PORTB, DEBUG
+		cbi PORTB, DEBUG
 		ldi _parser_state, ersStart2
 		// reset buffer index
 		ldi r18, rBufferBits
@@ -251,12 +286,21 @@ remote_pcint0_vector:
 	cpi _parser_state, ersStart2
 	brne _r_check_bit_start
 		// start2
+		;sbi PORTB, DEBUG
+		;nop
+		;nop
+		;cbi PORTB, DEBUG
 		ldi _parser_state, ersBeginBit
 		rjmp _r_end_switch_case
 	_r_check_bit_start:
 	cpi _parser_state, ersBeginBit
 	brne _r_reset_state
 		// begin bit
+		;sbi PORTB, DEBUG
+		;nop
+		;nop
+		;nop
+		;cbi PORTB, DEBUG
 		ldi _parser_state, ersEndBit
 		rjmp _r_end_switch_case
 	_r_reset_state:

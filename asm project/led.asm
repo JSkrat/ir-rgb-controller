@@ -7,14 +7,14 @@
 
 #ifndef _LED_
 #define _LED_
+.include "led.inc"
+.include "utils.inc"
 #define PIN_RED PORTB1
 #define PIN_GREEN PORTB0
 #define PIN_BLUE PORTB2
-#define LED_PHASES 5
-#define LEDS 3
+
 .DSEG
 led_phase:	.BYTE 1
-led:		.BYTE LEDS
 
 .CSEG
 
@@ -30,13 +30,6 @@ led_pins: .db (1 << PIN_RED), (1 << PIN_GREEN), (1 << PIN_BLUE), 0
 	// init led_phase
 	ldi r16, LED_PHASES
 	sts led_phase, r16
-	// debug led initialization
-	ldi r16, 0
-	sts led, r16
-	ldi r16, 1
-	sts led+1, r16
-	ldi r16, 5
-	sts led+2, r16
  .endmacro
 
  .macro led_tick
@@ -44,7 +37,7 @@ led_pins: .db (1 << PIN_RED), (1 << PIN_GREEN), (1 << PIN_BLUE), 0
 	lds _led_phase, led_phase
 	dec _led_phase
 	brne led_phase_ok
-	ldi _led_phase, LED_PHASES - 1
+	ldi _led_phase, LED_PHASES - 0
    led_phase_ok:
 	sts led_phase, _led_phase
    calc_leds:
@@ -54,9 +47,9 @@ led_pins: .db (1 << PIN_RED), (1 << PIN_GREEN), (1 << PIN_BLUE), 0
 	ser _led_off
 	// loop through all leds
 	ldi r20, LEDS
+	// for chips with less than 256 bytes of sram r29 is not a part of Y register in any way
 	ldi r28, led
-	ldi r30, led_pins
-	clr r31
+	ldi_z_for_lpm led_pins
 	calc_leds_loop:
 		#define _led_i_brightness r21
 		#define _led_i_pin r22

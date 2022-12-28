@@ -69,7 +69,13 @@
     <Compile Include="commands.asm">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="commands.inc">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="led.asm">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="led.inc">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="main.asm">
@@ -82,6 +88,9 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="timer.inc">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="utils.inc">
       <SubType>Code</SubType>
     </Compile>
   </ItemGroup>

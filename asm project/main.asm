@@ -4,7 +4,7 @@
 ; Created: 21.12.2022 16:49:36
 ; Author : Mintytail
 ;
-.listmac
+;.listmac
 
 .cseg ; Code segment to assemble to
 .org 0 ; Make sure that this starts at address zero
@@ -26,6 +26,7 @@
 .include "led.asm"
 .include "timer.asm"
 .include "remote.asm"
+.include "commands.asm"
 
 ; Replace with your application code
 start:
@@ -45,6 +46,7 @@ start:
 	led_init
 	timer_init
 	remote_init
+	commands_init
 	// sleep setup
 	// idle mode, where io clock and timer are running
 	// r2 is reserved specifically for main sleep loop
